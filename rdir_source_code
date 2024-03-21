@@ -1,0 +1,124 @@
+#include <Windows.h>
+#include <iostream>
+#include <string>
+#include <memory>
+#include <array>
+#include <aclapi.h>
+#include <filesystem>
+
+void printFileOwner(const std::string& listedFiles)
+{
+	//Retrieve security descriptor of file
+	PSECURITY_DESCRIPTOR securityDescriptor = nullptr;
+	DWORD dwRes = GetNamedSecurityInfoA(listedFiles.c_str(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &securityDescriptor);
+	if (dwRes != ERROR_SUCCESS)
+	{
+		printf("Unable to retrieve owner information for this file");
+		return;
+	}
+	//Retrieve owner SID from security descriptor
+	PSID ownerSID = nullptr;
+	BOOL defaulted = false;
+	if (!GetSecurityDescriptorOwner(securityDescriptor, &ownerSID, &defaulted))
+	{
+		printf("Unable to retrieve SID");
+	}
+	char uName[256];
+	DWORD userNameArraySize = sizeof(uName) / sizeof(uName[0]);
+	char domainName[256];
+	DWORD domainNameArraySize = sizeof(domainName) / sizeof(domainName[0]);
+	SID_NAME_USE sidName;
+	if (!LookupAccountSidA(nullptr, ownerSID, uName, &userNameArraySize, domainName, &domainNameArraySize, &sidName))
+	{
+		printf("Unable to retrieve account SID");
+		LocalFree(securityDescriptor);
+		return;
+	}
+	printf("File Owner: %s\\%s\n", domainName, uName);
+	LocalFree(securityDescriptor);
+
+}
+
+void listFiles(const std::string& directory, bool hiddenFiles, bool recursiveListing, bool fileOwner)
+{
+	std::string directoryWide = directory;
+	if (!directoryWide.empty() && directoryWide.back() != '\\')
+	{
+		directoryWide += '\\';
+	}
+	WIN32_FIND_DATAA fileInfo;
+	HANDLE hFile = FindFirstFileA((directoryWide + "*").c_str(), &fileInfo);
+	if (hFile != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			bool fileHidden = (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
+			if (!hiddenFiles && fileHidden)
+				continue;
+			SYSTEMTIME creationTime;
+			FileTimeToSystemTime(&fileInfo.ftCreationTime, &creationTime);
+
+			if (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{
+				{
+					std::string subdirectory = directoryWide + fileInfo.cFileName;
+					printf("%02d-%02d-%04d %02d:%02d:%02d %-5s %s\n", creationTime.wMonth, creationTime.wDay, creationTime.wYear, creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
+						fileInfo.cFileName, "<DIR>");
+
+					if (recursiveListing)
+					{
+						listFiles(subdirectory, hiddenFiles, recursiveListing, fileOwner);
+					}
+				}
+			}
+			else
+			{
+				ULONGLONG fileSize = (fileInfo.nFileSizeHigh * (MAXDWORD)) + fileInfo.nFileSizeLow;
+				printf("%02d-%02d-%04d %02d:%02d:%02d %-40s \t %-5lld bytes\n", creationTime.wMonth, creationTime.wDay, creationTime.wYear, creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
+					fileInfo.cFileName, fileSize);
+
+				if (fileOwner)
+				{
+					printFileOwner(directory + "\\" + fileInfo.cFileName);
+				}
+			}
+
+		} while (FindNextFileA(hFile, &fileInfo) != 0);
+		FindClose(hFile);
+	}
+	else
+	{
+		printf("This directory does not exist");
+	}
+}
+int main(int argc, char* argv[])
+{
+	std::string entry = std::filesystem::current_path().string(); // Default to current directory
+
+	bool hiddenFiles = false;
+	bool recursiveListing = false;
+	bool fileOwner = false;
+
+	// Parse command-line arguments
+	for (int i = 1; i < argc; ++i)
+	{
+		char* argument = argv[i];
+		// Argument is a switch
+		if (strcmp(argument, "/a") == 0) {
+			hiddenFiles = true;
+		}
+		else if (strcmp(argument, "/d") == 0) {
+			recursiveListing = true;
+		}
+		else if (strcmp(argument, "/o") == 0) {
+			fileOwner = true;
+		}
+		// Add handling for other switches if needed
+		else {
+			// Not a switch, consider it as the directory
+			entry = argument;
+		}
+	}
+	listFiles(entry, hiddenFiles, recursiveListing, fileOwner);
+		return 0;
+}

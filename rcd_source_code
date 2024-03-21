@@ -1,0 +1,27 @@
+#include <direct.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <Windows.h>
+
+#define BUFFERSIZE MAX_PATH
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s <dir> \n", argv[0]);
+        return 1;
+    }
+
+    char buffer[BUFFERSIZE];
+    DWORD dwReturn;
+    DWORD dwResult;
+
+    dwReturn = GetCurrentDirectoryA(BUFFERSIZE, buffer);
+
+    printf("Previously working directory: %s\n", buffer);    
+    SetCurrentDirectoryA(argv[1]);
+    dwResult = GetCurrentDirectoryA(BUFFERSIZE, buffer);
+    printf("New working directory: %s\n", buffer);
+
+    return 0;
+}

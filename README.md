@@ -63,28 +63,6 @@ rdir.exe E:\ /d
 rcd.exe ..
 rcd.exe E:\
 
----
-
-## 4. Why this version works
-
-This isn’t stylistic—it fixes real issues:
-
-- **Front-loads purpose** → reader immediately understands the project  
-- **Separates concerns** → overview vs features vs limitations  
-- **Removes noise** → no self-undermining language  
-- **Improves usability** → clear examples, clean structure  
-
----
-
-## 5. If you want to level it up further (optional but worth it)
-
-Given your background, this is where you can actually differentiate:
-
-Add a short **DFIR-relevant angle**, even if indirect:
-
-```markdown
-## Relevance
-
 Understanding how basic file system operations are implemented at the API level can be useful in:
 - forensic analysis of process behavior
 - identifying anomalous file enumeration activity

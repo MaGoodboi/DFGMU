@@ -1,27 +1,67 @@
-#include <direct.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <Windows.h>
-
-#define BUFFERSIZE MAX_PATH
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
-        printf("Usage: %s <dir> \n", argv[0]);
+        printf("Usage: %s <dir>\n", argv[0]);
         return 1;
     }
 
-    char buffer[BUFFERSIZE];
-    DWORD dwReturn;
-    DWORD dwResult;
+    DWORD bufferSize = MAX_PATH;
+    char* buffer = NULL;
 
-    dwReturn = GetCurrentDirectoryA(BUFFERSIZE, buffer);
+    // Allocate initial buffer
+    buffer = (char*)malloc(bufferSize);
+    if (!buffer) {
+        fprintf(stderr, "Memory allocation failed\n");
+        return 1;
+    }
 
-    printf("Previously working directory: %s\n", buffer);    
-    SetCurrentDirectoryA(argv[1]);
-    dwResult = GetCurrentDirectoryA(BUFFERSIZE, buffer);
+    // Get current directory (handle resizing if needed)
+    DWORD result = GetCurrentDirectoryA(bufferSize, buffer);
+    if (result == 0) {
+        fprintf(stderr, "Failed to get current directory (error %lu)\n", GetLastError());
+        free(buffer);
+        return 1;
+    }
+
+    if (result > bufferSize) {
+        bufferSize = result;
+        buffer = (char*)realloc(buffer, bufferSize);
+        if (!buffer) {
+            fprintf(stderr, "Memory reallocation failed\n");
+            return 1;
+        }
+
+        result = GetCurrentDirectoryA(bufferSize, buffer);
+        if (result == 0) {
+            fprintf(stderr, "Failed to get current directory (error %lu)\n", GetLastError());
+            free(buffer);
+            return 1;
+        }
+    }
+
+    printf("Previous working directory: %s\n", buffer);
+
+    // Attempt to change directory
+    if (!SetCurrentDirectoryA(argv[1])) {
+        fprintf(stderr, "Failed to change directory to '%s' (error %lu)\n",
+                argv[1], GetLastError());
+        free(buffer);
+        return 1;
+    }
+
+    // Get new directory
+    result = GetCurrentDirectoryA(bufferSize, buffer);
+    if (result == 0) {
+        fprintf(stderr, "Failed to get new directory (error %lu)\n", GetLastError());
+        free(buffer);
+        return 1;
+    }
+
     printf("New working directory: %s\n", buffer);
 
+    free(buffer);
     return 0;
 }

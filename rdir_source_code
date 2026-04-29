@@ -1,124 +1,157 @@
 #include <Windows.h>
 #include <iostream>
 #include <string>
-#include <memory>
-#include <array>
 #include <aclapi.h>
-#include <filesystem>
 
-void printFileOwner(const std::string& listedFiles)
+void printFileOwner(const std::string& filePath)
 {
-	//Retrieve security descriptor of file
-	PSECURITY_DESCRIPTOR securityDescriptor = nullptr;
-	DWORD dwRes = GetNamedSecurityInfoA(listedFiles.c_str(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &securityDescriptor);
-	if (dwRes != ERROR_SUCCESS)
-	{
-		printf("Unable to retrieve owner information for this file");
-		return;
-	}
-	//Retrieve owner SID from security descriptor
-	PSID ownerSID = nullptr;
-	BOOL defaulted = false;
-	if (!GetSecurityDescriptorOwner(securityDescriptor, &ownerSID, &defaulted))
-	{
-		printf("Unable to retrieve SID");
-	}
-	char uName[256];
-	DWORD userNameArraySize = sizeof(uName) / sizeof(uName[0]);
-	char domainName[256];
-	DWORD domainNameArraySize = sizeof(domainName) / sizeof(domainName[0]);
-	SID_NAME_USE sidName;
-	if (!LookupAccountSidA(nullptr, ownerSID, uName, &userNameArraySize, domainName, &domainNameArraySize, &sidName))
-	{
-		printf("Unable to retrieve account SID");
-		LocalFree(securityDescriptor);
-		return;
-	}
-	printf("File Owner: %s\\%s\n", domainName, uName);
-	LocalFree(securityDescriptor);
+    PSECURITY_DESCRIPTOR securityDescriptor = nullptr;
 
+    DWORD dwRes = GetNamedSecurityInfoA(
+        filePath.c_str(),
+        SE_FILE_OBJECT,
+        OWNER_SECURITY_INFORMATION,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        &securityDescriptor
+    );
+
+    if (dwRes != ERROR_SUCCESS)
+    {
+        printf("Unable to retrieve owner information (error %lu)\n", dwRes);
+        return;
+    }
+
+    PSID ownerSID = nullptr;
+    BOOL defaulted = FALSE;
+
+    if (!GetSecurityDescriptorOwner(securityDescriptor, &ownerSID, &defaulted))
+    {
+        printf("Unable to retrieve SID (error %lu)\n", GetLastError());
+        LocalFree(securityDescriptor);
+        return;
+    }
+
+    char uName[256];
+    DWORD userNameSize = sizeof(uName);
+
+    char domainName[256];
+    DWORD domainNameSize = sizeof(domainName);
+
+    SID_NAME_USE sidName;
+
+    if (!LookupAccountSidA(
+            nullptr,
+            ownerSID,
+            uName,
+            &userNameSize,
+            domainName,
+            &domainNameSize,
+            &sidName))
+    {
+        printf("Unable to resolve SID (error %lu)\n", GetLastError());
+        LocalFree(securityDescriptor);
+        return;
+    }
+
+    printf("Owner: %s\\%s\n", domainName, uName);
+
+    LocalFree(securityDescriptor);
 }
 
-void listFiles(const std::string& directory, bool hiddenFiles, bool recursiveListing, bool fileOwner)
+void listFiles(const std::string& directory, bool showHidden, bool recursive, bool showOwner)
 {
-	std::string directoryWide = directory;
-	if (!directoryWide.empty() && directoryWide.back() != '\\')
-	{
-		directoryWide += '\\';
-	}
-	WIN32_FIND_DATAA fileInfo;
-	HANDLE hFile = FindFirstFileA((directoryWide + "*").c_str(), &fileInfo);
-	if (hFile != INVALID_HANDLE_VALUE)
-	{
-		do
-		{
-			bool fileHidden = (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
-			if (!hiddenFiles && fileHidden)
-				continue;
-			SYSTEMTIME creationTime;
-			FileTimeToSystemTime(&fileInfo.ftCreationTime, &creationTime);
+    std::string basePath = directory;
 
-			if (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			{
-				{
-					std::string subdirectory = directoryWide + fileInfo.cFileName;
-					printf("%02d-%02d-%04d %02d:%02d:%02d %-5s %s\n", creationTime.wMonth, creationTime.wDay, creationTime.wYear, creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
-						fileInfo.cFileName, "<DIR>");
+    if (!basePath.empty() && basePath.back() != '\\')
+        basePath += '\\';
 
-					if (recursiveListing)
-					{
-						listFiles(subdirectory, hiddenFiles, recursiveListing, fileOwner);
-					}
-				}
-			}
-			else
-			{
-				ULONGLONG fileSize = (fileInfo.nFileSizeHigh * (MAXDWORD)) + fileInfo.nFileSizeLow;
-				printf("%02d-%02d-%04d %02d:%02d:%02d %-40s \t %-5lld bytes\n", creationTime.wMonth, creationTime.wDay, creationTime.wYear, creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
-					fileInfo.cFileName, fileSize);
+    WIN32_FIND_DATAA fileInfo;
 
-				if (fileOwner)
-				{
-					printFileOwner(directory + "\\" + fileInfo.cFileName);
-				}
-			}
+    HANDLE hFind = FindFirstFileA((basePath + "*").c_str(), &fileInfo);
 
-		} while (FindNextFileA(hFile, &fileInfo) != 0);
-		FindClose(hFile);
-	}
-	else
-	{
-		printf("This directory does not exist");
-	}
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        printf("Failed to open directory '%s' (error %lu)\n", directory.c_str(), GetLastError());
+        return;
+    }
+
+    do
+    {
+        // 🔴 CRITICAL FIX: skip "." and ".."
+        if (strcmp(fileInfo.cFileName, ".") == 0 || strcmp(fileInfo.cFileName, "..") == 0)
+            continue;
+
+        bool isHidden = (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
+        if (!showHidden && isHidden)
+            continue;
+
+        std::string fullPath = basePath + fileInfo.cFileName;
+
+        SYSTEMTIME creationTime;
+        FileTimeToSystemTime(&fileInfo.ftCreationTime, &creationTime);
+
+        if (fileInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        {
+            printf("%02d-%02d-%04d %02d:%02d:%02d  %-30s <DIR>\n",
+                creationTime.wMonth, creationTime.wDay, creationTime.wYear,
+                creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
+                fileInfo.cFileName);
+
+            // 🔴 Avoid recursion loops (junctions/symlinks)
+            if (recursive &&
+                !(fileInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            {
+                listFiles(fullPath, showHidden, recursive, showOwner);
+            }
+        }
+        else
+        {
+            // 🔴 FIXED file size calculation
+            ULONGLONG fileSize =
+                ((ULONGLONG)fileInfo.nFileSizeHigh << 32) | fileInfo.nFileSizeLow;
+
+            printf("%02d-%02d-%04d %02d:%02d:%02d  %-40s %llu bytes\n",
+                creationTime.wMonth, creationTime.wDay, creationTime.wYear,
+                creationTime.wHour, creationTime.wMinute, creationTime.wSecond,
+                fileInfo.cFileName, fileSize);
+
+            if (showOwner)
+            {
+                printFileOwner(fullPath);
+            }
+        }
+
+    } while (FindNextFileA(hFind, &fileInfo));
+
+    FindClose(hFind);
 }
+
 int main(int argc, char* argv[])
 {
-	std::string entry = std::filesystem::current_path().string(); // Default to current directory
+    std::string directory = ".";
 
-	bool hiddenFiles = false;
-	bool recursiveListing = false;
-	bool fileOwner = false;
+    bool showHidden = false;
+    bool recursive = false;
+    bool showOwner = false;
 
-	// Parse command-line arguments
-	for (int i = 1; i < argc; ++i)
-	{
-		char* argument = argv[i];
-		// Argument is a switch
-		if (strcmp(argument, "/a") == 0) {
-			hiddenFiles = true;
-		}
-		else if (strcmp(argument, "/d") == 0) {
-			recursiveListing = true;
-		}
-		else if (strcmp(argument, "/o") == 0) {
-			fileOwner = true;
-		}
-		// Add handling for other switches if needed
-		else {
-			// Not a switch, consider it as the directory
-			entry = argument;
-		}
-	}
-	listFiles(entry, hiddenFiles, recursiveListing, fileOwner);
-		return 0;
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string arg = argv[i];
+
+        if (arg == "/a")
+            showHidden = true;
+        else if (arg == "/d")
+            recursive = true;
+        else if (arg == "/o")
+            showOwner = true;
+        else
+            directory = arg;
+    }
+
+    listFiles(directory, showHidden, recursive, showOwner);
+
+    return 0;
 }

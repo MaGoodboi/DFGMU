@@ -62,8 +62,3 @@ rdir.exe E:\ /d
 
 rcd.exe ..
 rcd.exe E:\
-
-Understanding how basic file system operations are implemented at the API level can be useful in:
-- forensic analysis of process behavior
-- identifying anomalous file enumeration activity
-- reverse engineering simple tooling used by threat actors
